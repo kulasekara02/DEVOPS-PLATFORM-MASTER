@@ -1,0 +1,120 @@
+# =============================================================================
+# Kubernetes Services
+# =============================================================================
+---
+# Frontend Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: devops-platform
+  labels:
+    app: frontend
+    app.kubernetes.io/name: frontend
+    app.kubernetes.io/component: frontend
+    app.kubernetes.io/part-of: devops-platform-master
+spec:
+  type: ClusterIP
+  selector:
+    app: frontend
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+
+---
+# API Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+  namespace: devops-platform
+  labels:
+    app: api
+    app.kubernetes.io/name: api
+    app.kubernetes.io/component: backend
+    app.kubernetes.io/part-of: devops-platform-master
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8080"
+    prometheus.io/path: "/metrics"
+spec:
+  type: ClusterIP
+  selector:
+    app: api
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
+
+---
+# Worker Service (for metrics scraping)
+apiVersion: v1
+kind: Service
+metadata:
+  name: worker
+  namespace: devops-platform
+  labels:
+    app: worker
+    app.kubernetes.io/name: worker
+    app.kubernetes.io/component: worker
+    app.kubernetes.io/part-of: devops-platform-master
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9091"
+    prometheus.io/path: "/metrics"
+spec:
+  type: ClusterIP
+  selector:
+    app: worker
+  ports:
+    - name: metrics
+      port: 9091
+      targetPort: metrics
+      protocol: TCP
+
+---
+# PostgreSQL Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: devops-platform
+  labels:
+    app: postgres
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: devops-platform-master
+spec:
+  type: ClusterIP
+  selector:
+    app: postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+      protocol: TCP
+
+---
+# Redis Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: devops-platform
+  labels:
+    app: redis
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/component: cache
+    app.kubernetes.io/part-of: devops-platform-master
+spec:
+  type: ClusterIP
+  selector:
+    app: redis
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis
+      protocol: TCP

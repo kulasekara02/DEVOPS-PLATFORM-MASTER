@@ -1,0 +1,198 @@
+# =============================================================================
+# Helm Values - DevOps Platform Master
+# =============================================================================
+# Default values for devops-platform-master chart
+# Override these values in your environment-specific values files
+# =============================================================================
+
+# Global settings
+global:
+  imageRegistry: ghcr.io
+  imagePullSecrets: []
+  storageClass: ""
+
+# Namespace
+namespace: devops-platform
+
+# Frontend configuration
+frontend:
+  enabled: true
+  replicaCount: 2
+
+  image:
+    repository: devops-platform-master/frontend
+    tag: "latest"
+    pullPolicy: IfNotPresent
+
+  service:
+    type: ClusterIP
+    port: 80
+
+  resources:
+    limits:
+      cpu: 200m
+      memory: 256Mi
+    requests:
+      cpu: 50m
+      memory: 64Mi
+
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# API configuration
+api:
+  enabled: true
+  replicaCount: 3
+
+  image:
+    repository: devops-platform-master/api
+    tag: "latest"
+    pullPolicy: IfNotPresent
+
+  service:
+    type: ClusterIP
+    port: 8080
+
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 20
+    targetCPUUtilizationPercentage: 60
+
+  env:
+    NODE_ENV: production
+    LOG_LEVEL: info
+    OTEL_ENABLED: "true"
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# Worker configuration
+worker:
+  enabled: true
+  replicaCount: 2
+
+  image:
+    repository: devops-platform-master/worker
+    tag: "latest"
+    pullPolicy: IfNotPresent
+
+  service:
+    type: ClusterIP
+    port: 9091
+
+  resources:
+    limits:
+      cpu: 250m
+      memory: 256Mi
+    requests:
+      cpu: 50m
+      memory: 64Mi
+
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+
+  env:
+    WORKER_CONCURRENCY: "5"
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# PostgreSQL configuration (using Bitnami subchart)
+postgresql:
+  enabled: true
+  auth:
+    username: devops
+    password: ""  # Set via --set or secrets
+    database: devops_platform
+  primary:
+    persistence:
+      enabled: true
+      size: 10Gi
+  metrics:
+    enabled: true
+
+# Redis configuration (using Bitnami subchart)
+redis:
+  enabled: true
+  auth:
+    enabled: false
+  master:
+    persistence:
+      enabled: false
+  replica:
+    replicaCount: 0
+  metrics:
+    enabled: true
+
+# Ingress configuration
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+  hosts:
+    - host: devops.local
+      paths:
+        - path: /api
+          pathType: Prefix
+          service: api
+        - path: /
+          pathType: Prefix
+          service: frontend
+  tls: []
+  #  - secretName: tls-secret
+  #    hosts:
+  #      - devops.local
+
+# ServiceAccount configuration
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+# Pod Disruption Budget
+podDisruptionBudget:
+  enabled: true
+  frontend:
+    minAvailable: 1
+  api:
+    minAvailable: 2
+  worker:
+    minAvailable: 1
+
+# Network Policy
+networkPolicy:
+  enabled: true
+
+# Prometheus ServiceMonitor
+serviceMonitor:
+  enabled: false
+  namespace: monitoring
+  interval: 30s
+
+# Secrets (set these via --set or external secrets management)
+secrets:
+  jwtSecret: ""
+  databaseUrl: ""
+  redisUrl: ""

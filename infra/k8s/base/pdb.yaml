@@ -1,0 +1,89 @@
+# =============================================================================
+# Pod Disruption Budgets
+# =============================================================================
+# PDBs ensure high availability during voluntary disruptions (upgrades, scaling)
+# =============================================================================
+---
+# Frontend PDB
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: frontend-pdb
+  namespace: devops-platform
+  labels:
+    app: frontend
+    app.kubernetes.io/name: frontend-pdb
+    app.kubernetes.io/part-of: devops-platform-master
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: frontend
+
+---
+# API PDB
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: api-pdb
+  namespace: devops-platform
+  labels:
+    app: api
+    app.kubernetes.io/name: api-pdb
+    app.kubernetes.io/part-of: devops-platform-master
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: api
+
+---
+# Worker PDB
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: worker-pdb
+  namespace: devops-platform
+  labels:
+    app: worker
+    app.kubernetes.io/name: worker-pdb
+    app.kubernetes.io/part-of: devops-platform-master
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: worker
+
+---
+# PostgreSQL PDB (single replica, allow disruption only when necessary)
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: postgres-pdb
+  namespace: devops-platform
+  labels:
+    app: postgres
+    app.kubernetes.io/name: postgres-pdb
+    app.kubernetes.io/part-of: devops-platform-master
+spec:
+  maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: postgres
+
+---
+# Redis PDB
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: redis-pdb
+  namespace: devops-platform
+  labels:
+    app: redis
+    app.kubernetes.io/name: redis-pdb
+    app.kubernetes.io/part-of: devops-platform-master
+spec:
+  maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: redis

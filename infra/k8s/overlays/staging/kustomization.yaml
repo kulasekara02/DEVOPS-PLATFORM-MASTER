@@ -1,0 +1,93 @@
+# =============================================================================
+# Kustomize Staging Overlay
+# =============================================================================
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: devops-platform-staging
+
+# Base resources
+resources:
+  - ../../base
+
+# Namespace override
+namespace: devops-platform-staging
+
+# Name prefix/suffix
+namePrefix: staging-
+
+# Common labels
+commonLabels:
+  environment: staging
+
+# Common annotations
+commonAnnotations:
+  config.kubernetes.io/managed-by: kustomize-staging
+
+# Image overrides
+images:
+  - name: ghcr.io/devops-platform-master/frontend
+    newTag: staging
+  - name: ghcr.io/devops-platform-master/api
+    newTag: staging
+  - name: ghcr.io/devops-platform-master/worker
+    newTag: staging
+
+# Config patches
+patches:
+  # Moderate replicas for staging
+  - patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 2
+    target:
+      kind: Deployment
+      name: frontend
+
+  - patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 2
+    target:
+      kind: Deployment
+      name: api
+
+  - patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+    target:
+      kind: Deployment
+      name: worker
+
+  # Moderate HPA for staging
+  - patch: |-
+      - op: replace
+        path: /spec/minReplicas
+        value: 2
+      - op: replace
+        path: /spec/maxReplicas
+        value: 5
+    target:
+      kind: HorizontalPodAutoscaler
+      name: frontend-hpa
+
+  - patch: |-
+      - op: replace
+        path: /spec/minReplicas
+        value: 2
+      - op: replace
+        path: /spec/maxReplicas
+        value: 8
+    target:
+      kind: HorizontalPodAutoscaler
+      name: api-hpa
+
+# ConfigMap customization
+configMapGenerator:
+  - name: app-config
+    behavior: merge
+    literals:
+      - NODE_ENV=staging
+      - LOG_LEVEL=info

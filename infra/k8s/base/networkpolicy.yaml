@@ -1,0 +1,241 @@
+# =============================================================================
+# Network Policies
+# =============================================================================
+# Network policies restrict pod-to-pod communication for security
+# Requires a CNI that supports NetworkPolicy (Calico, Cilium, etc.)
+# =============================================================================
+---
+# Default deny all ingress traffic
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: devops-platform
+  labels:
+    app.kubernetes.io/part-of: devops-platform-master
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+
+---
+# Frontend Network Policy
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: frontend-netpol
+  namespace: devops-platform
+  labels:
+    app: frontend
+    app.kubernetes.io/name: frontend-netpol
+    app.kubernetes.io/part-of: devops-platform-master
+spec:
+  podSelector:
+    matchLabels:
+      app: frontend
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow from ingress controller
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 80
+    # Allow from within namespace (for health checks)
+    - from:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 80
+  egress:
+    # Allow to API service
+    - to:
+        - podSelector:
+            matchLabels:
+              app: api
+      ports:
+        - protocol: TCP
+          port: 8080
+    # Allow DNS
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: UDP
+          port: 53
+
+---
+# API Network Policy
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: api-netpol
+  namespace: devops-platform
+  labels:
+    app: api
+    app.kubernetes.io/name: api-netpol
+    app.kubernetes.io/part-of: devops-platform-master
+spec:
+  podSelector:
+    matchLabels:
+      app: api
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow from frontend
+    - from:
+        - podSelector:
+            matchLabels:
+              app: frontend
+      ports:
+        - protocol: TCP
+          port: 8080
+    # Allow from ingress controller
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 8080
+    # Allow Prometheus scraping
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: monitoring
+      ports:
+        - protocol: TCP
+          port: 8080
+  egress:
+    # Allow to PostgreSQL
+    - to:
+        - podSelector:
+            matchLabels:
+              app: postgres
+      ports:
+        - protocol: TCP
+          port: 5432
+    # Allow to Redis
+    - to:
+        - podSelector:
+            matchLabels:
+              app: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+    # Allow to Jaeger (tracing)
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: 4318
+    # Allow DNS
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: UDP
+          port: 53
+
+---
+# Worker Network Policy
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: worker-netpol
+  namespace: devops-platform
+  labels:
+    app: worker
+    app.kubernetes.io/name: worker-netpol
+    app.kubernetes.io/part-of: devops-platform-master
+spec:
+  podSelector:
+    matchLabels:
+      app: worker
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow Prometheus scraping
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: monitoring
+      ports:
+        - protocol: TCP
+          port: 9091
+  egress:
+    # Allow to Redis
+    - to:
+        - podSelector:
+            matchLabels:
+              app: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+    # Allow DNS
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: UDP
+          port: 53
+
+---
+# PostgreSQL Network Policy
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-netpol
+  namespace: devops-platform
+  labels:
+    app: postgres
+    app.kubernetes.io/name: postgres-netpol
+    app.kubernetes.io/part-of: devops-platform-master
+spec:
+  podSelector:
+    matchLabels:
+      app: postgres
+  policyTypes:
+    - Ingress
+  ingress:
+    # Allow only from API
+    - from:
+        - podSelector:
+            matchLabels:
+              app: api
+      ports:
+        - protocol: TCP
+          port: 5432
+
+---
+# Redis Network Policy
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: redis-netpol
+  namespace: devops-platform
+  labels:
+    app: redis
+    app.kubernetes.io/name: redis-netpol
+    app.kubernetes.io/part-of: devops-platform-master
+spec:
+  podSelector:
+    matchLabels:
+      app: redis
+  policyTypes:
+    - Ingress
+  ingress:
+    # Allow from API and Worker
+    - from:
+        - podSelector:
+            matchLabels:
+              app: api
+        - podSelector:
+            matchLabels:
+              app: worker
+      ports:
+        - protocol: TCP
+          port: 6379

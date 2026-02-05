@@ -1,0 +1,92 @@
+# =============================================================================
+# Kustomize Dev Overlay
+# =============================================================================
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: devops-platform-dev
+
+# Base resources
+resources:
+  - ../../base
+
+# Namespace override
+namespace: devops-platform-dev
+
+# Name prefix/suffix
+namePrefix: dev-
+
+# Common labels
+commonLabels:
+  environment: development
+
+# Common annotations
+commonAnnotations:
+  config.kubernetes.io/managed-by: kustomize-dev
+
+# Image overrides
+images:
+  - name: ghcr.io/devops-platform-master/frontend
+    newTag: dev
+  - name: ghcr.io/devops-platform-master/api
+    newTag: dev
+  - name: ghcr.io/devops-platform-master/worker
+    newTag: dev
+
+# Config patches
+patches:
+  # Reduce replicas for dev
+  - patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+    target:
+      kind: Deployment
+      name: frontend
+
+  - patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+    target:
+      kind: Deployment
+      name: api
+
+  - patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+    target:
+      kind: Deployment
+      name: worker
+
+  # Reduce HPA for dev
+  - patch: |-
+      - op: replace
+        path: /spec/minReplicas
+        value: 1
+      - op: replace
+        path: /spec/maxReplicas
+        value: 3
+    target:
+      kind: HorizontalPodAutoscaler
+
+# ConfigMap customization
+configMapGenerator:
+  - name: app-config
+    behavior: merge
+    literals:
+      - NODE_ENV=development
+      - LOG_LEVEL=debug
+
+# Secret generator (for dev only)
+secretGenerator:
+  - name: app-secrets
+    behavior: merge
+    literals:
+      - POSTGRES_USER=devops
+      - POSTGRES_PASSWORD=devops_dev_password
+      - DATABASE_URL=postgresql://devops:devops_dev_password@dev-postgres:5432/devops_platform
+      - REDIS_URL=redis://dev-redis:6379/0
+      - JWT_SECRET=dev-jwt-secret-not-for-production

@@ -1,0 +1,141 @@
+# =============================================================================
+# Kustomize Production Overlay
+# =============================================================================
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: devops-platform-prod
+
+# Base resources
+resources:
+  - ../../base
+
+# Namespace override
+namespace: devops-platform
+
+# Common labels
+commonLabels:
+  environment: production
+
+# Common annotations
+commonAnnotations:
+  config.kubernetes.io/managed-by: kustomize-prod
+
+# Image overrides - use specific version tags in production
+images:
+  - name: ghcr.io/devops-platform-master/frontend
+    newTag: v1.0.0
+  - name: ghcr.io/devops-platform-master/api
+    newTag: v1.0.0
+  - name: ghcr.io/devops-platform-master/worker
+    newTag: v1.0.0
+
+# Config patches
+patches:
+  # Production replicas
+  - patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 3
+    target:
+      kind: Deployment
+      name: frontend
+
+  - patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 5
+    target:
+      kind: Deployment
+      name: api
+
+  - patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 3
+    target:
+      kind: Deployment
+      name: worker
+
+  # Production resource limits
+  - patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/cpu
+        value: "1"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: "1Gi"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/cpu
+        value: "200m"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/memory
+        value: "256Mi"
+    target:
+      kind: Deployment
+      name: api
+
+  # Enable TLS in ingress
+  - patch: |-
+      - op: add
+        path: /spec/tls
+        value:
+          - hosts:
+              - devops.example.com
+              - api.devops.example.com
+            secretName: tls-secret
+      - op: replace
+        path: /spec/rules/0/host
+        value: devops.example.com
+      - op: replace
+        path: /spec/rules/1/host
+        value: api.devops.example.com
+    target:
+      kind: Ingress
+      name: devops-platform-ingress
+
+  # Production HPA settings
+  - patch: |-
+      - op: replace
+        path: /spec/minReplicas
+        value: 3
+      - op: replace
+        path: /spec/maxReplicas
+        value: 10
+    target:
+      kind: HorizontalPodAutoscaler
+      name: frontend-hpa
+
+  - patch: |-
+      - op: replace
+        path: /spec/minReplicas
+        value: 5
+      - op: replace
+        path: /spec/maxReplicas
+        value: 20
+    target:
+      kind: HorizontalPodAutoscaler
+      name: api-hpa
+
+  - patch: |-
+      - op: replace
+        path: /spec/minReplicas
+        value: 3
+      - op: replace
+        path: /spec/maxReplicas
+        value: 10
+    target:
+      kind: HorizontalPodAutoscaler
+      name: worker-hpa
+
+# ConfigMap customization
+configMapGenerator:
+  - name: app-config
+    behavior: merge
+    literals:
+      - NODE_ENV=production
+      - LOG_LEVEL=warn
+
+# Note: Production secrets should be managed externally
+# Use sealed-secrets, external-secrets-operator, or cloud-native secrets management
