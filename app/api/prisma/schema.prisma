@@ -1,0 +1,71 @@
+// =============================================================================
+// Prisma Schema - DevOps Platform Master
+// =============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// =============================================================================
+// Models
+// =============================================================================
+
+model Item {
+  id          String   @id @default(uuid())
+  name        String   @db.VarChar(255)
+  description String?  @db.Text
+  status      String   @default("active") @db.VarChar(50)
+  metadata    Json?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@index([status])
+  @@index([createdAt])
+  @@index([name])
+  @@map("items")
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique @db.VarChar(255)
+  name      String   @db.VarChar(255)
+  role      String   @default("user") @db.VarChar(50)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@index([email])
+  @@index([role])
+  @@map("users")
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  action    String   @db.VarChar(100)
+  entity    String   @db.VarChar(100)
+  entityId  String?  @map("entity_id") @db.VarChar(255)
+  userId    String?  @map("user_id") @db.VarChar(255)
+  metadata  Json?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([action])
+  @@index([entity])
+  @@index([entityId])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model Setting {
+  key       String   @id @db.VarChar(255)
+  value     Json
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@map("settings")
+}

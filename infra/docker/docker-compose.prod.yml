@@ -1,0 +1,206 @@
+# =============================================================================
+# Docker Compose - Production-like Environment
+# =============================================================================
+# Usage: docker compose -f infra/docker/docker-compose.prod.yml up -d
+# =============================================================================
+
+name: devops-platform-prod
+
+services:
+  # ---------------------------------------------------------------------------
+  # Nginx Reverse Proxy
+  # ---------------------------------------------------------------------------
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./certs:/etc/nginx/certs:ro
+    depends_on:
+      - frontend
+      - api
+    networks:
+      - devops-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ---------------------------------------------------------------------------
+  # Frontend Application
+  # ---------------------------------------------------------------------------
+  frontend:
+    image: ${REGISTRY:-ghcr.io}/devops-platform-master/frontend:${VERSION:-latest}
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.frontend
+      target: production
+      args:
+        - VITE_API_URL=${VITE_API_URL:-}
+    expose:
+      - "80"
+    networks:
+      - devops-network
+    restart: unless-stopped
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+
+  # ---------------------------------------------------------------------------
+  # API Service
+  # ---------------------------------------------------------------------------
+  api:
+    image: ${REGISTRY:-ghcr.io}/devops-platform-master/api:${VERSION:-latest}
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.api
+      target: production
+    expose:
+      - "8080"
+    environment:
+      - NODE_ENV=production
+      - API_HOST=0.0.0.0
+      - API_PORT=8080
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+      - LOG_LEVEL=info
+      - OTEL_ENABLED=true
+      - OTEL_SERVICE_NAME=devops-platform-api
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      - JWT_SECRET=${JWT_SECRET}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - devops-network
+    restart: unless-stopped
+    deploy:
+      replicas: 3
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # ---------------------------------------------------------------------------
+  # Worker Service
+  # ---------------------------------------------------------------------------
+  worker:
+    image: ${REGISTRY:-ghcr.io}/devops-platform-master/worker:${VERSION:-latest}
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.worker
+      target: production
+    environment:
+      - NODE_ENV=production
+      - REDIS_URL=${REDIS_URL}
+      - WORKER_CONCURRENCY=5
+      - LOG_LEVEL=info
+      - METRICS_PORT=9091
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - devops-network
+    restart: unless-stopped
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9091/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL Database
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-devops}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB:-devops_platform}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - devops-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-devops}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # Redis Cache
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    networks:
+      - devops-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+# =============================================================================
+# Networks
+# =============================================================================
+networks:
+  devops-network:
+    driver: bridge
+
+# =============================================================================
+# Volumes
+# =============================================================================
+volumes:
+  postgres_data:
+  redis_data:

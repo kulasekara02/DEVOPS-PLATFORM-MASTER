@@ -1,0 +1,113 @@
+# =============================================================================
+# Dockerfile.api - API Service
+# =============================================================================
+# Multi-stage build for optimized production images
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Stage 1: Dependencies
+# -----------------------------------------------------------------------------
+FROM node:20-alpine AS deps
+
+# Install build dependencies for native modules
+RUN apk add --no-cache libc6-compat python3 make g++
+
+WORKDIR /app
+
+# Copy package files
+COPY app/api/package*.json ./
+
+# Install dependencies
+RUN npm ci --only=production && \
+    cp -R node_modules prod_node_modules && \
+    npm ci
+
+# -----------------------------------------------------------------------------
+# Stage 2: Builder
+# -----------------------------------------------------------------------------
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+# Copy dependencies from deps stage
+COPY --from=deps /app/node_modules ./node_modules
+COPY app/api ./
+
+# Generate Prisma client
+RUN npx prisma generate
+
+# Build TypeScript
+RUN npm run build
+
+# -----------------------------------------------------------------------------
+# Stage 3: Production
+# -----------------------------------------------------------------------------
+FROM node:20-alpine AS production
+
+# Security: Create non-root user
+RUN addgroup --system --gid 1001 nodejs && \
+    adduser --system --uid 1001 appuser
+
+WORKDIR /app
+
+# Copy production dependencies
+COPY --from=deps /app/prod_node_modules ./node_modules
+
+# Copy built application
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
+COPY app/api/prisma ./prisma
+
+# Set ownership
+RUN chown -R appuser:nodejs /app
+
+# Switch to non-root user
+USER appuser
+
+# Environment variables
+ENV NODE_ENV=production
+ENV API_HOST=0.0.0.0
+ENV API_PORT=8080
+
+# Expose port
+EXPOSE 8080
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:8080/health/live || exit 1
+
+# Start the application
+CMD ["node", "dist/index.js"]
+
+# -----------------------------------------------------------------------------
+# Stage: Development
+# -----------------------------------------------------------------------------
+FROM node:20-alpine AS development
+
+WORKDIR /app
+
+# Install development tools
+RUN apk add --no-cache libc6-compat python3 make g++
+
+# Copy package files
+COPY app/api/package*.json ./
+
+# Install all dependencies
+RUN npm ci
+
+# Copy source code
+COPY app/api ./
+
+# Generate Prisma client
+RUN npx prisma generate
+
+# Environment variables
+ENV NODE_ENV=development
+ENV API_HOST=0.0.0.0
+ENV API_PORT=8080
+
+# Expose port
+EXPOSE 8080
+
+# Start in development mode
+CMD ["npm", "run", "dev"]

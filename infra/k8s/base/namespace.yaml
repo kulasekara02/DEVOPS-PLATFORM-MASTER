@@ -1,0 +1,13 @@
+# =============================================================================
+# Kubernetes Namespace
+# =============================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: devops-platform
+  labels:
+    name: devops-platform
+    app.kubernetes.io/name: devops-platform
+    app.kubernetes.io/part-of: devops-platform-master
+  annotations:
+    description: "DevOps Platform Master application namespace"
