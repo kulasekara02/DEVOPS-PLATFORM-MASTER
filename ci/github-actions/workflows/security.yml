@@ -1,0 +1,229 @@
+# =============================================================================
+# Security Pipeline
+# =============================================================================
+# Runs security scans: container scanning, dependency scanning, secret scanning
+# Generates SBOM (Software Bill of Materials)
+# =============================================================================
+
+name: Security Scan
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  schedule:
+    # Run daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+  packages: read
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ${{ github.repository }}
+
+jobs:
+  # ===========================================================================
+  # Dependency Scanning
+  # ===========================================================================
+  dependency-scan:
+    name: Dependency Vulnerability Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run npm audit (API)
+        working-directory: app/api
+        continue-on-error: true
+        run: |
+          npm ci
+          npm audit --audit-level=high --json > npm-audit-api.json || true
+
+      - name: Run npm audit (Frontend)
+        working-directory: app/frontend
+        continue-on-error: true
+        run: |
+          npm ci
+          npm audit --audit-level=high --json > npm-audit-frontend.json || true
+
+      - name: Run npm audit (Worker)
+        working-directory: app/worker
+        continue-on-error: true
+        run: |
+          npm ci
+          npm audit --audit-level=high --json > npm-audit-worker.json || true
+
+      - name: Upload audit results
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-audit-results
+          path: app/**/npm-audit-*.json
+          retention-days: 30
+
+  # ===========================================================================
+  # Container Scanning with Trivy
+  # ===========================================================================
+  container-scan:
+    name: Container Security Scan
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [frontend, api, worker]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build image for scanning
+        run: |
+          docker build -t ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:scan \
+            -f infra/docker/Dockerfile.${{ matrix.service }} \
+            --target production .
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:scan
+          format: 'sarif'
+          output: 'trivy-${{ matrix.service }}.sarif'
+          severity: 'CRITICAL,HIGH'
+          ignore-unfixed: true
+
+      - name: Upload Trivy scan results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: 'trivy-${{ matrix.service }}.sarif'
+          category: 'trivy-${{ matrix.service }}'
+
+      - name: Run Trivy (table format for logs)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:scan
+          format: 'table'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+          ignore-unfixed: true
+
+  # ===========================================================================
+  # Secret Scanning
+  # ===========================================================================
+  secret-scan:
+    name: Secret Detection
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: TruffleHog Secret Scan
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: ${{ github.event.repository.default_branch }}
+          head: HEAD
+          extra_args: --only-verified
+
+      - name: Gitleaks Secret Scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ===========================================================================
+  # SBOM Generation
+  # ===========================================================================
+  sbom:
+    name: Generate SBOM
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [frontend, api, worker]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build image
+        run: |
+          docker build -t ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:sbom \
+            -f infra/docker/Dockerfile.${{ matrix.service }} \
+            --target production .
+
+      - name: Generate SBOM with Syft
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:sbom
+          artifact-name: sbom-${{ matrix.service }}.spdx.json
+          output-file: sbom-${{ matrix.service }}.spdx.json
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-${{ matrix.service }}
+          path: sbom-${{ matrix.service }}.spdx.json
+          retention-days: 90
+
+  # ===========================================================================
+  # CodeQL Analysis
+  # ===========================================================================
+  codeql:
+    name: CodeQL Analysis
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v2
+        with:
+          languages: javascript-typescript
+          queries: security-and-quality
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v2
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v2
+        with:
+          category: "/language:javascript-typescript"
+
+  # ===========================================================================
+  # Security Summary
+  # ===========================================================================
+  security-summary:
+    name: Security Summary
+    runs-on: ubuntu-latest
+    needs: [dependency-scan, container-scan, secret-scan, sbom, codeql]
+    if: always()
+    steps:
+      - name: Check security scan results
+        run: |
+          echo "Dependency Scan: ${{ needs.dependency-scan.result }}"
+          echo "Container Scan: ${{ needs.container-scan.result }}"
+          echo "Secret Scan: ${{ needs.secret-scan.result }}"
+          echo "SBOM Generation: ${{ needs.sbom.result }}"
+          echo "CodeQL Analysis: ${{ needs.codeql.result }}"
+
+      - name: Fail if critical issues found
+        if: |
+          needs.secret-scan.result == 'failure' ||
+          needs.codeql.result == 'failure'
+        run: |
+          echo "Critical security issues found!"
+          exit 1
+
+      - name: Security scan completed
+        run: echo "Security scans completed. Check the Security tab for detailed results."
