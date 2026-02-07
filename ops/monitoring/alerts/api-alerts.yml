@@ -1,0 +1,116 @@
+# =============================================================================
+# API Service Alert Rules
+# =============================================================================
+groups:
+  - name: api-alerts
+    rules:
+      # High error rate
+      - alert: APIHighErrorRate
+        expr: |
+          sum(rate(devops_api_http_requests_total{status=~"5.."}[5m])) /
+          sum(rate(devops_api_http_requests_total[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          service: api
+        annotations:
+          summary: "High API error rate"
+          description: "API error rate is {{ $value | humanizePercentage }} (threshold: 5%)"
+
+      # High latency
+      - alert: APIHighLatency
+        expr: |
+          histogram_quantile(0.95, sum(rate(devops_api_http_request_duration_seconds_bucket[5m])) by (le)) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+          service: api
+        annotations:
+          summary: "High API latency"
+          description: "API p95 latency is {{ $value | humanizeDuration }} (threshold: 500ms)"
+
+      # API down
+      - alert: APIDown
+        expr: up{job="api"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: api
+        annotations:
+          summary: "API service is down"
+          description: "API service has been down for more than 1 minute"
+
+      # High memory usage
+      - alert: APIHighMemoryUsage
+        expr: |
+          process_resident_memory_bytes{job="api"} / 1024 / 1024 > 400
+        for: 10m
+        labels:
+          severity: warning
+          service: api
+        annotations:
+          summary: "High API memory usage"
+          description: "API memory usage is {{ $value | humanize }}MB (threshold: 400MB)"
+
+  - name: database-alerts
+    rules:
+      # Database connection issues
+      - alert: DatabaseConnectionFailed
+        expr: |
+          devops_api_db_queries_total{operation="error"} > 0
+        for: 1m
+        labels:
+          severity: critical
+          service: database
+        annotations:
+          summary: "Database connection issues"
+          description: "Database queries are failing"
+
+      # Slow queries
+      - alert: DatabaseSlowQueries
+        expr: |
+          histogram_quantile(0.95, sum(rate(devops_api_db_query_duration_seconds_bucket[5m])) by (le)) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          service: database
+        annotations:
+          summary: "Slow database queries"
+          description: "Database p95 query time is {{ $value | humanizeDuration }}"
+
+  - name: worker-alerts
+    rules:
+      # Worker down
+      - alert: WorkerDown
+        expr: up{job="worker"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: worker
+        annotations:
+          summary: "Worker service is down"
+          description: "Worker service has been down for more than 2 minutes"
+
+      # High job failure rate
+      - alert: HighJobFailureRate
+        expr: |
+          sum(rate(devops_worker_jobs_processed_total{status="failed"}[10m])) /
+          sum(rate(devops_worker_jobs_processed_total[10m])) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          service: worker
+        annotations:
+          summary: "High job failure rate"
+          description: "Job failure rate is {{ $value | humanizePercentage }}"
+
+      # Job queue backlog
+      - alert: JobQueueBacklog
+        expr: devops_worker_active_jobs > 50
+        for: 10m
+        labels:
+          severity: warning
+          service: worker
+        annotations:
+          summary: "Job queue backlog"
+          description: "{{ $value }} jobs are waiting in queue"
