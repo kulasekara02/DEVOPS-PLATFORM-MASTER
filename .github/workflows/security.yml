@@ -1,0 +1,79 @@
+# =============================================================================
+# Security Pipeline
+# =============================================================================
+name: Security Scan
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+  packages: read
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ${{ github.repository }}
+
+jobs:
+  dependency-scan:
+    name: Dependency Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cd app/api && npm ci && npm audit --audit-level=high || true
+      - run: cd app/frontend && npm ci && npm audit --audit-level=high || true
+
+  container-scan:
+    name: Container Scan
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [frontend, api, worker]
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:scan -f infra/docker/Dockerfile.${{ matrix.service }} --target production .
+      - uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:scan
+          format: 'sarif'
+          output: 'trivy-${{ matrix.service }}.sarif'
+          severity: 'CRITICAL,HIGH'
+      - uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: 'trivy-${{ matrix.service }}.sarif'
+
+  secret-scan:
+    name: Secret Detection
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          extra_args: --only-verified
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  codeql:
+    name: CodeQL Analysis
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: github/codeql-action/init@v2
+        with:
+          languages: javascript-typescript
+      - uses: github/codeql-action/autobuild@v2
+      - uses: github/codeql-action/analyze@v2
