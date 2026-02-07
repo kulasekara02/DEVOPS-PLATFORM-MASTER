@@ -1,0 +1,66 @@
+# =============================================================================
+# Cleanup Pipeline
+# =============================================================================
+name: Cleanup
+
+on:
+  schedule:
+    - cron: '0 3 * * 0'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run'
+        default: 'true'
+        type: boolean
+
+permissions:
+  contents: read
+  packages: write
+  actions: write
+
+jobs:
+  clean-artifacts:
+    name: Clean Old Artifacts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: Mattraks/delete-workflow-runs@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          retain_days: 30
+          keep_minimum_runs: 10
+      - uses: c-hive/gha-remove-artifacts@v1
+        with:
+          age: '30 days'
+          skip-recent: 5
+
+  clean-images:
+    name: Clean Old Images
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [frontend, api, worker]
+    steps:
+      - uses: actions/delete-package-versions@v4
+        with:
+          package-name: ${{ matrix.service }}
+          package-type: 'container'
+          min-versions-to-keep: 10
+          delete-only-untagged-versions: 'true'
+
+  clean-branches:
+    name: Clean Stale Branches
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Delete merged branches
+        run: |
+          git branch -r --merged origin/main | grep -v 'main\|develop\|HEAD' | sed 's/origin\///' | while read branch; do
+            if [ "${{ github.event.inputs.dry_run }}" == "true" ]; then
+              echo "Would delete: $branch"
+            else
+              git push origin --delete "$branch" || true
+            fi
+          done
